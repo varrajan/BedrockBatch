@@ -27,5 +27,8 @@ samconfig.toml
 
 # Generated files
 *.docx
+*.drawio
+blog.md
+generate_blog_docx.py
 benchmark/inputs/
 benchmark/dashboard.html
