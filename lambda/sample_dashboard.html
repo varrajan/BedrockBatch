@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bedrock Batch Dashboard</title>
+<style>
+  :root {
+    --surface: #f8f9fa;
+    --card-bg: #ffffff;
+    --text-primary: #1a1a2e;
+    --text-secondary: #4a5568;
+    --text-muted: #8895a7;
+    --border: #e2e8f0;
+    --green: #2d7d46;
+    --green-bg: #e6f4ea;
+    --red: #c53030;
+    --red-bg: #fde8e8;
+    --orange: #c05621;
+    --orange-bg: #fef3e2;
+    --blue: #2b6cb0;
+    --blue-bg: #e8f0fe;
+    --purple: #6b46c1;
+    --purple-bg: #f0ebfe;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--surface);
+    color: var(--text-primary);
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  header { margin-bottom: 2rem; }
+  header h1 { font-size: 1.5rem; font-weight: 600; }
+  header p { color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; }
+
+  /* Stat tiles */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .stat {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+  .stat .label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .stat .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; line-height: 1.1; }
+  .stat .detail { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; }
+  .stat.green .value { color: var(--green); }
+  .stat.red .value { color: var(--red); }
+  .stat.orange .value { color: var(--orange); }
+  .stat.blue .value { color: var(--blue); }
+  .stat.purple .value { color: var(--purple); }
+
+  /* Section */
+  .section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+  }
+  .section-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-header h2 { font-size: 1rem; font-weight: 600; }
+  .section-header .badge {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
+    text-align: left;
+    padding: 0.6rem 1rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f7fafc; }
+
+  /* Status badges */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.15rem 0.6rem;
+    border-radius: 4px;
+  }
+  .status-completed { color: var(--green); background: var(--green-bg); }
+  .status-failed { color: var(--red); background: var(--red-bg); }
+  .status-expired { color: var(--orange); background: var(--orange-bg); }
+  .status-inprogress { color: var(--blue); background: var(--blue-bg); }
+  .status-recovered { color: var(--purple); background: var(--purple-bg); }
+
+  .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; }
+  .text-right { text-align: right; }
+  .text-muted { color: var(--text-muted); }
+
+  /* Bar chart */
+  .chart-container { padding: 1.25rem; }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .bar-label {
+    width: 140px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .bar-track {
+    flex: 1;
+    height: 24px;
+    background: var(--surface);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+  .bar-value {
+    width: 80px;
+    text-align: right;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex-shrink: 0;
+    padding-left: 0.75rem;
+  }
+
+  /* Throughput colors by region */
+  .fill-east { background: #4a90d9; }
+  .fill-west { background: #7c3aed; }
+
+  /* Two-column layout */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+
+  /* Latency sparkline */
+  .latency-bar {
+    display: inline-block;
+    height: 14px;
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+
+  .footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 1rem;
+    padding: 1rem;
+  }
+
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Bedrock Batch Dashboard</h1>
+  <p>Account 132356282270 &middot; Generated 2026-11-03 12:15 UTC &middot; Model: Claude Haiku 4.5</p>
+</header>
+
+<!-- Stat tiles -->
+<div class="stats">
+  <div class="stat">
+    <div class="label">Total Jobs</div>
+    <div class="value">8</div>
+    <div class="detail">across 2 regions</div>
+  </div>
+  <div class="stat green">
+    <div class="label">Completed</div>
+    <div class="value">5</div>
+    <div class="detail">62.5% success rate</div>
+  </div>
+  <div class="stat red">
+    <div class="label">Failed / Expired</div>
+    <div class="value">3</div>
+    <div class="detail">2 expired, 1 failed</div>
+  </div>
+  <div class="stat purple">
+    <div class="label">Recoveries</div>
+    <div class="value">3</div>
+    <div class="detail">847 records recovered</div>
+  </div>
+  <div class="stat blue">
+    <div class="label">Events</div>
+    <div class="value">24</div>
+    <div class="detail">avg latency 2.3s</div>
+  </div>
+</div>
+
+<!-- Jobs table -->
+<div class="section">
+  <div class="section-header">
+    <h2>Jobs</h2>
+    <span class="badge" style="background: var(--blue-bg); color: var(--blue);">8 jobs</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Region</th>
+        <th>Job ID</th>
+        <th>Batch Size</th>
+        <th>Status</th>
+        <th>Duration</th>
+        <th class="text-right">Succeeded</th>
+        <th class="text-right">Failed</th>
+        <th>Failure Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>us-east-1</td>
+        <td class="mono">5u9b33sh79aj</td>
+        <td>100</td>
+        <td><span class="status status-completed">Completed</span></td>
+        <td>2h 14m</td>
+        <td class="text-right">100</td>
+        <td class="text-right">0</td>
+        <td class="text-muted">&mdash;</td>
+      </tr>
+      <tr>
+        <td>us-east-1</td>
+        <td class="mono">7ka2m9xp41bc</td>
+        <td>500</td>
+        <td><span class="status status-completed">Completed</span></td>
+        <td>6h 42m</td>
+        <td class="text-right">500</td>
+        <td class="text-right">0</td>
+        <td class="text-muted">&mdash;</td>
+      </tr>
+      <tr>
+        <td>us-east-1</td>
+        <td class="mono">2nf8kq3r65de</td>
+        <td>1000</td>
+        <td><span class="status status-completed">Completed</span></td>
+        <td>11h 28m</td>
+        <td class="text-right">998</td>
+        <td class="text-right">2</td>
+        <td class="text-muted">&mdash;</td>
+      </tr>
+      <tr>
+        <td>us-east-1</td>
+        <td class="mono">9pl4wt7v82fg</td>
+        <td>5000</td>
+        <td><span class="status status-expired">Expired</span></td>
+        <td>24h 0m</td>
+        <td class="text-right">4,612</td>
+        <td class="text-right">0</td>
+        <td>Job timed out after 24 hours</td>
+      </tr>
+      <tr>
+        <td>us-west-2</td>
+        <td class="mono">3hj6nc8s23hi</td>
+        <td>100</td>
+        <td><span class="status status-completed">Completed</span></td>
+        <td>1h 51m</td>
+        <td class="text-right">100</td>
+        <td class="text-right">0</td>
+        <td class="text-muted">&mdash;</td>
+      </tr>
+      <tr>
+        <td>us-west-2</td>
+        <td class="mono">8rm5yd2k47jk</td>
+        <td>500</td>
+        <td><span class="status status-completed">Completed</span></td>
+        <td>5h 53m</td>
+        <td class="text-right">500</td>
+        <td class="text-right">0</td>
+        <td class="text-muted">&mdash;</td>
+      </tr>
+      <tr>
+        <td>us-west-2</td>
+        <td class="mono">1bx9qf6m58lm</td>
+        <td>1000</td>
+        <td><span class="status status-failed">Failed</span></td>
+        <td>8h 17m</td>
+        <td class="text-right">673</td>
+        <td class="text-right">0</td>
+        <td>InternalServerException</td>
+      </tr>
+      <tr>
+        <td>us-west-2</td>
+        <td class="mono">4gy3hn1p96no</td>
+        <td>5000</td>
+        <td><span class="status status-expired">Expired</span></td>
+        <td>24h 0m</td>
+        <td class="text-right">4,241</td>
+        <td class="text-right">3</td>
+        <td>Job timed out after 24 hours</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Throughput + Recovery side by side -->
+<div class="grid-2">
+
+  <!-- Throughput chart -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Throughput (records / hour)</h2>
+    </div>
+    <div class="chart-container">
+      <div class="bar-row">
+        <div class="bar-label">us-east-1 &middot; 100</div>
+        <div class="bar-track"><div class="bar-fill fill-east" style="width: 20%"></div></div>
+        <div class="bar-value">44.8</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-east-1 &middot; 500</div>
+        <div class="bar-track"><div class="bar-fill fill-east" style="width: 33%"></div></div>
+        <div class="bar-value">74.6</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-east-1 &middot; 1000</div>
+        <div class="bar-track"><div class="bar-fill fill-east" style="width: 39%"></div></div>
+        <div class="bar-value">87.1</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-east-1 &middot; 5000</div>
+        <div class="bar-track"><div class="bar-fill fill-east" style="width: 86%"></div></div>
+        <div class="bar-value">192.2</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-west-2 &middot; 100</div>
+        <div class="bar-track"><div class="bar-fill fill-west" style="width: 24%"></div></div>
+        <div class="bar-value">54.1</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-west-2 &middot; 500</div>
+        <div class="bar-track"><div class="bar-fill fill-west" style="width: 38%"></div></div>
+        <div class="bar-value">84.9</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-west-2 &middot; 1000</div>
+        <div class="bar-track"><div class="bar-fill fill-west" style="width: 36%"></div></div>
+        <div class="bar-value">81.3</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">us-west-2 &middot; 5000</div>
+        <div class="bar-track"><div class="bar-fill fill-west" style="width: 79%"></div></div>
+        <div class="bar-value">176.7</div>
+      </div>
+      <div style="display: flex; gap: 1.5rem; margin-top: 1rem; padding-left: 140px;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-muted);">
+          <span style="width: 12px; height: 12px; border-radius: 2px; background: #4a90d9; display: inline-block;"></span> us-east-1
+        </span>
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-muted);">
+          <span style="width: 12px; height: 12px; border-radius: 2px; background: #7c3aed; display: inline-block;"></span> us-west-2
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fallback recoveries -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Fallback Recoveries</h2>
+      <span class="badge" style="background: var(--purple-bg); color: var(--purple);">3 recoveries</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>Reason</th>
+          <th class="text-right">Records</th>
+          <th class="text-right">Duration</th>
+          <th class="text-right">Tokens</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">9pl4wt7v82fg</td>
+          <td><span class="status status-expired">Expired</span></td>
+          <td class="text-right">388</td>
+          <td class="text-right">4m 12s</td>
+          <td class="text-right mono">58,200</td>
+        </tr>
+        <tr>
+          <td class="mono">1bx9qf6m58lm</td>
+          <td><span class="status status-failed">Failed</span></td>
+          <td class="text-right">327</td>
+          <td class="text-right">3m 38s</td>
+          <td class="text-right mono">49,050</td>
+        </tr>
+        <tr>
+          <td class="mono">4gy3hn1p96no</td>
+          <td><span class="status status-expired">Expired</span></td>
+          <td class="text-right">756</td>
+          <td class="text-right">8m 51s</td>
+          <td class="text-right mono">113,400</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="padding: 1rem 1.25rem; border-top: 1px solid var(--border); background: var(--purple-bg);">
+      <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+        <span style="color: var(--purple); font-weight: 600;">Total recovered</span>
+        <span style="color: var(--purple); font-weight: 600;">847 records &middot; 16m 41s &middot; 220,650 tokens</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Events log -->
+<div class="section">
+  <div class="section-header">
+    <h2>Event Log</h2>
+    <span class="badge" style="background: var(--blue-bg); color: var(--blue);">24 events</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Time (UTC)</th>
+        <th>Region</th>
+        <th>Job ID</th>
+        <th>Transition</th>
+        <th>Push Latency</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">11-02 14:03:12</td>
+        <td>us-east-1</td>
+        <td class="mono">5u9b33sh79aj</td>
+        <td><span class="text-muted">Submitted</span> &rarr; <span>Validating</span></td>
+        <td><span class="latency-bar" style="width: 12px; background: var(--green);"></span> 1.2s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 14:03:44</td>
+        <td>us-east-1</td>
+        <td class="mono">5u9b33sh79aj</td>
+        <td><span class="text-muted">Validating</span> &rarr; <span>Scheduled</span></td>
+        <td><span class="latency-bar" style="width: 18px; background: var(--green);"></span> 1.8s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 14:12:07</td>
+        <td>us-east-1</td>
+        <td class="mono">5u9b33sh79aj</td>
+        <td><span class="text-muted">Scheduled</span> &rarr; <span>InProgress</span></td>
+        <td><span class="latency-bar" style="width: 24px; background: var(--green);"></span> 2.4s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 14:05:21</td>
+        <td>us-west-2</td>
+        <td class="mono">3hj6nc8s23hi</td>
+        <td><span class="text-muted">Submitted</span> &rarr; <span>Validating</span></td>
+        <td><span class="latency-bar" style="width: 9px; background: var(--green);"></span> 0.9s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 14:05:48</td>
+        <td>us-west-2</td>
+        <td class="mono">3hj6nc8s23hi</td>
+        <td><span class="text-muted">Validating</span> &rarr; <span>Scheduled</span></td>
+        <td><span class="latency-bar" style="width: 14px; background: var(--green);"></span> 1.4s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 14:15:33</td>
+        <td>us-west-2</td>
+        <td class="mono">3hj6nc8s23hi</td>
+        <td><span class="text-muted">Scheduled</span> &rarr; <span>InProgress</span></td>
+        <td><span class="latency-bar" style="width: 31px; background: var(--green);"></span> 3.1s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 15:54:18</td>
+        <td>us-west-2</td>
+        <td class="mono">3hj6nc8s23hi</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-completed" style="padding: 0.1rem 0.4rem;">Completed</span></td>
+        <td><span class="latency-bar" style="width: 21px; background: var(--green);"></span> 2.1s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 16:17:45</td>
+        <td>us-east-1</td>
+        <td class="mono">5u9b33sh79aj</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-completed" style="padding: 0.1rem 0.4rem;">Completed</span></td>
+        <td><span class="latency-bar" style="width: 17px; background: var(--green);"></span> 1.7s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 20:45:09</td>
+        <td>us-east-1</td>
+        <td class="mono">7ka2m9xp41bc</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-completed" style="padding: 0.1rem 0.4rem;">Completed</span></td>
+        <td><span class="latency-bar" style="width: 28px; background: var(--green);"></span> 2.8s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 19:58:33</td>
+        <td>us-west-2</td>
+        <td class="mono">8rm5yd2k47jk</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-completed" style="padding: 0.1rem 0.4rem;">Completed</span></td>
+        <td><span class="latency-bar" style="width: 15px; background: var(--green);"></span> 1.5s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-02 22:20:14</td>
+        <td>us-west-2</td>
+        <td class="mono">1bx9qf6m58lm</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-failed" style="padding: 0.1rem 0.4rem;">Failed</span></td>
+        <td><span class="latency-bar" style="width: 44px; background: var(--orange);"></span> 4.4s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-03 01:31:22</td>
+        <td>us-east-1</td>
+        <td class="mono">2nf8kq3r65de</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-completed" style="padding: 0.1rem 0.4rem;">Completed</span></td>
+        <td><span class="latency-bar" style="width: 19px; background: var(--green);"></span> 1.9s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-03 14:03:12</td>
+        <td>us-east-1</td>
+        <td class="mono">9pl4wt7v82fg</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-expired" style="padding: 0.1rem 0.4rem;">Expired</span></td>
+        <td><span class="latency-bar" style="width: 32px; background: var(--green);"></span> 3.2s</td>
+      </tr>
+      <tr>
+        <td class="mono">11-03 14:05:21</td>
+        <td>us-west-2</td>
+        <td class="mono">4gy3hn1p96no</td>
+        <td><span class="text-muted">InProgress</span> &rarr; <span class="status status-expired" style="padding: 0.1rem 0.4rem;">Expired</span></td>
+        <td><span class="latency-bar" style="width: 27px; background: var(--green);"></span> 2.7s</td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="padding: 0.6rem 1rem; font-size: 0.75rem; color: var(--text-muted); border-top: 1px solid var(--border);">
+    Showing 14 of 24 events (terminal transitions + selected intermediate)
+  </div>
+</div>
+
+<!-- Cost estimate -->
+<div class="section">
+  <div class="section-header">
+    <h2>Cost Estimate</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th class="text-right">Input Tokens</th>
+        <th class="text-right">Output Tokens</th>
+        <th class="text-right">Rate</th>
+        <th class="text-right">Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Batch inference (50% discount)</td>
+        <td class="text-right mono">612,400</td>
+        <td class="text-right mono">122,480</td>
+        <td class="text-right">$0.50 / $2.50 per 1M</td>
+        <td class="text-right mono">$0.61</td>
+      </tr>
+      <tr>
+        <td>On-demand recovery</td>
+        <td class="text-right mono">127,050</td>
+        <td class="text-right mono">25,410</td>
+        <td class="text-right">$1.00 / $5.00 per 1M</td>
+        <td class="text-right mono">$0.25</td>
+      </tr>
+      <tr style="font-weight: 600;">
+        <td>Total</td>
+        <td class="text-right mono">739,450</td>
+        <td class="text-right mono">147,890</td>
+        <td></td>
+        <td class="text-right mono">$0.86</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Generated 2026-11-03 12:15 UTC by build_dashboard Lambda &middot; bedrock-batch-pipeline stack &middot; us-east-1
+</div>
+
+</body>
+</html>

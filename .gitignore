@@ -1,0 +1,31 @@
+# Build artifacts
+.aws-sam/
+lambda/.aws-sam/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# SQLite databases
+*.db
+
+# Claude Code local settings
+.claude/
+
+# SAM deploy config (contains account-specific values)
+lambda/samconfig.toml
+samconfig.toml
+
+# Generated files
+*.docx
+benchmark/inputs/
+benchmark/dashboard.html

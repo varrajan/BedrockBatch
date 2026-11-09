@@ -1,0 +1,55 @@
+# Bedrock batch benchmark configuration
+
+model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# AWS credential selection. Leave null to use the default boto3 chain
+# (env vars → ~/.aws/credentials default profile → ~/.aws/config → SSO
+# → IAM role). Set to a profile name to force that profile.
+# You can also set this via the AWS_PROFILE environment variable.
+aws_profile: null
+
+# Regions to benchmark in parallel
+regions:
+  - us-east-1
+  - us-west-2
+
+# Batch sizes to test (number of records per job)
+# Bedrock's hard minimum is 100 records per job.
+batch_sizes: [100]
+
+# Per-job wall-clock timeout. Passed directly to Bedrock's
+# CreateModelInvocationJob as `timeoutDurationInHours` (benchmark.py:103).
+# Valid range per the API is 24-168. When Bedrock hits this limit the
+# job transitions to `Expired`, which triggers our on-demand fallback.
+timeout_hours: 24
+
+# How often the watcher polls job status
+poll_interval_seconds: 300
+
+# Fallback on-demand concurrency when a batch times out
+ondemand_concurrency: 10
+
+# S3 configuration. If create_buckets is true, the benchmark will create
+# `${bucket_prefix}-${region}` buckets on first run.
+s3:
+  bucket_prefix: "bedrock-batch-benchmark"
+  create_buckets: true
+
+# IAM role Bedrock assumes to read input / write output.
+# Leave null to let the script create one named `BedrockBatchBenchmarkRole`.
+iam_role_arn: null
+
+# Workload template. "short" = ~50 input / ~10 output tokens.
+# "medium" = ~500 input / ~150 output tokens.
+workload: "short"
+
+# Pricing (USD per 1M tokens). Used only for cost estimates on the dashboard.
+# Haiku 4.5 on-demand published rates; batch is 50% off.
+pricing:
+  ondemand_input_per_1m: 1.00
+  ondemand_output_per_1m: 5.00
+  batch_discount: 0.50
+
+# When true, no AWS calls are made; synthetic results are generated so
+# the dashboard can be rendered end-to-end without spend.
+dry_run: false

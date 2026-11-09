@@ -1,0 +1,353 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Bedrock Batch Lambda pipeline — serverless replacement for the
+  laptop-based benchmark scripts.
+
+Parameters:
+  ModelId:
+    Type: String
+    Default: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  Regions:
+    Type: String
+    Default: '["us-east-1","us-west-2"]'
+    Description: JSON array of regions to submit jobs in
+  BatchSize:
+    Type: Number
+    Default: 100
+  TimeoutHours:
+    Type: Number
+    Default: 24
+    MinValue: 24
+    MaxValue: 168
+  BucketPrefix:
+    Type: String
+    Default: bedrock-batch-benchmark
+  BedrockRoleArn:
+    Type: String
+    Description: ARN of the IAM role Bedrock assumes for S3 + InvokeModel
+  OndemandConcurrency:
+    Type: Number
+    Default: 50
+  FallbackSchedule:
+    Type: String
+    Default: "rate(6 hours)"
+    Description: EventBridge schedule for the fallback sweep
+  DashboardBucket:
+    Type: String
+    Default: bedrock-batch-dashboard
+    Description: S3 bucket for dashboard HTML output
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 900
+    MemorySize: 256
+    Layers:
+      - !Ref SharedLayer
+    Environment:
+      Variables:
+        JOBS_TABLE: !Ref JobsTable
+        EVENTS_TABLE: !Ref EventsTable
+        FALLBACKS_TABLE: !Ref FallbacksTable
+
+Resources:
+  # ---- DynamoDB tables ----
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+
+  FallbacksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+
+  # ---- Shared layer (storage_ddb) ----
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: bedrock-batch-shared
+      Description: DynamoDB storage layer shared across all functions
+      ContentUri: shared/
+      CompatibleRuntimes:
+        - python3.9
+
+  # ---- SQS queues (one per region in Regions param is handled by
+  #      setup_events.py; this template creates the Lambda trigger
+  #      for the local region's queue) ----
+  EventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: 960
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EventDLQ.Arn
+        maxReceiveCount: 3
+
+  EventDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  EventQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EventQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowEventBridgeSend
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt EventQueue.Arn
+            Condition:
+              ArnEquals:
+                "aws:SourceArn": !GetAtt BedrockBatchRule.Arn
+
+  # ---- EventBridge rule ----
+  BedrockBatchRule:
+    Type: AWS::Events::Rule
+    Properties:
+      State: ENABLED
+      Description: Bedrock batch inference job state-change events
+      EventPattern:
+        source:
+          - aws.bedrock
+        detail-type:
+          - "Batch Inference Job State Change"
+      Targets:
+        - Id: batch-queue
+          Arn: !GetAtt EventQueue.Arn
+
+  # ---- Cross-region event forwarding ----
+  CrossRegionEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PutEventsToStackRegion
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/default"
+
+  SetupCrossRegionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.handler
+      CodeUri: setup_cross_region/
+      Timeout: 120
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - events:PutRule
+                - events:PutTargets
+                - events:DeleteRule
+                - events:RemoveTargets
+                - events:DescribeRule
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: !GetAtt CrossRegionEventRole.Arn
+
+  CrossRegionEventsSetup:
+    Type: Custom::CrossRegionEvents
+    Properties:
+      ServiceToken: !GetAtt SetupCrossRegionFunction.Arn
+      Regions: !Ref Regions
+      StackRegion: !Ref "AWS::Region"
+      AccountId: !Ref "AWS::AccountId"
+      ForwardingRoleArn: !GetAtt CrossRegionEventRole.Arn
+
+  # ---- Lambda functions ----
+  SubmitJobsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bedrock-batch-submit-jobs
+      Handler: app.handler
+      CodeUri: submit_jobs/
+      Timeout: 120
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          REGIONS: !Ref Regions
+          BATCH_SIZE: !Ref BatchSize
+          TIMEOUT_HOURS: !Ref TimeoutHours
+          BUCKET_PREFIX: !Ref BucketPrefix
+          BEDROCK_ROLE_ARN: !Ref BedrockRoleArn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:CreateModelInvocationJob
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:CreateBucket
+                - s3:HeadBucket
+                - s3:PutObject
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !Ref BedrockRoleArn
+
+  HandleEventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bedrock-batch-handle-event
+      Handler: app.handler
+      CodeUri: handle_event/
+      Timeout: 900
+      Environment:
+        Variables:
+          ONDEMAND_CONCURRENCY: !Ref OndemandConcurrency
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt EventQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FallbacksTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:GetModelInvocationJob
+                - bedrock:StopModelInvocationJob
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource: "*"
+
+  FallbackSweepFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bedrock-batch-fallback-sweep
+      Handler: app.handler
+      CodeUri: fallback_sweep/
+      Timeout: 900
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref FallbackSchedule
+            Description: Periodic sweep for jobs the event path missed
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FallbacksTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:GetModelInvocationJob
+                - bedrock:InvokeModel
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource: "*"
+
+  BuildDashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: bedrock-batch-build-dashboard
+      Handler: app.handler
+      CodeUri: build_dashboard/
+      Timeout: 120
+      Environment:
+        Variables:
+          DASHBOARD_BUCKET: !Ref DashboardBucket
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref JobsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref FallbacksTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub "arn:aws:s3:::${DashboardBucket}/*"
+
+Outputs:
+  SubmitJobsArn:
+    Value: !GetAtt SubmitJobsFunction.Arn
+  HandleEventArn:
+    Value: !GetAtt HandleEventFunction.Arn
+  FallbackSweepArn:
+    Value: !GetAtt FallbackSweepFunction.Arn
+  BuildDashboardArn:
+    Value: !GetAtt BuildDashboardFunction.Arn
+  EventQueueUrl:
+    Value: !Ref EventQueue
+  EventQueueArn:
+    Value: !GetAtt EventQueue.Arn
+  JobsTableName:
+    Value: !Ref JobsTable
