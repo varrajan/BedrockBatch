@@ -81,7 +81,27 @@ def init(db_path: Path) -> None:
         conn.executescript(SCHEMA)
 
 
+_VALID_COLS = {
+    "jobs": {"job_id", "region", "batch_size", "model_id", "workload", "submitted_at",
+             "started_at", "completed_at", "status", "records_succeeded", "records_failed",
+             "input_tokens", "output_tokens", "s3_input_uri", "s3_output_uri", "failure_reason"},
+    "fallbacks": {"job_id", "triggered_at", "records_recovered", "ondemand_duration_seconds",
+                  "ondemand_input_tokens", "ondemand_output_tokens", "reason"},
+    "events": {"job_id", "region", "old_status", "new_status", "event_time", "received_at",
+               "source", "raw_json"},
+}
+
+
+def _validate_cols(table: str, keys):
+    allowed = _VALID_COLS.get(table)
+    if allowed:
+        bad = set(keys) - allowed
+        if bad:
+            raise ValueError(f"Invalid column names for {table}: {bad}")
+
+
 def record_job(db_path: Path, row: dict) -> None:
+    _validate_cols("jobs", row.keys())
     cols = ",".join(row.keys())
     placeholders = ",".join("?" for _ in row)
     with connect(db_path) as conn:
@@ -92,6 +112,7 @@ def record_job(db_path: Path, row: dict) -> None:
 
 
 def update_job(db_path: Path, job_id: str, updates: dict) -> None:
+    _validate_cols("jobs", updates.keys())
     sets = ",".join(f"{k} = ?" for k in updates)
     with connect(db_path) as conn:
         conn.execute(
@@ -101,6 +122,7 @@ def update_job(db_path: Path, job_id: str, updates: dict) -> None:
 
 
 def record_fallback(db_path: Path, row: dict) -> None:
+    _validate_cols("fallbacks", row.keys())
     cols = ",".join(row.keys())
     placeholders = ",".join("?" for _ in row)
     with connect(db_path) as conn:
@@ -111,6 +133,7 @@ def record_fallback(db_path: Path, row: dict) -> None:
 
 
 def record_event(db_path: Path, row: dict) -> None:
+    _validate_cols("events", row.keys())
     cols = ",".join(row.keys())
     placeholders = ",".join("?" for _ in row)
     with connect(db_path) as conn:

@@ -85,7 +85,7 @@ def ensure_role(session, role_name: str, bucket_arns: list[str]) -> str:
             {
                 "Effect": "Allow",
                 "Action": "bedrock:InvokeModel",
-                "Resource": "*",
+                "Resource": "arn:aws:bedrock:*::foundation-model/*",
             },
         ],
     }

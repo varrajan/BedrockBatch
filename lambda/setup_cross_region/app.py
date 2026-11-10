@@ -89,4 +89,4 @@ def handler(event, context):
 
     except Exception as e:
         print(f"Error: {e}")
-        _send_response(event, context, "FAILED", {"Error": str(e)})
+        _send_response(event, context, "FAILED", {"Error": "Internal error — see CloudWatch logs"})

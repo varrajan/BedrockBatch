@@ -11,6 +11,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from html import escape as esc
 
 import boto3
 
@@ -53,14 +54,14 @@ def _build_html(jobs, events, fallbacks):
             duration = now - j["submitted_at"]
         rows.append(f"""
         <tr>
-            <td>{j.get('region', '—')}</td>
-            <td>{j.get('batch_size', '—')}</td>
+            <td>{esc(str(j.get('region', '—')))}</td>
+            <td>{esc(str(j.get('batch_size', '—')))}</td>
             <td>{_fmt_time(j.get('submitted_at'))}</td>
-            <td class="status-{j.get('status', 'Unknown').lower()}">{j.get('status', '—')}</td>
+            <td class="status-{esc(j.get('status', 'Unknown').lower())}">{esc(j.get('status', '—'))}</td>
             <td>{_fmt_duration(duration)}</td>
             <td>{j.get('records_succeeded', 0)}</td>
             <td>{j.get('records_failed', 0)}</td>
-            <td>{j.get('failure_reason') or '—'}</td>
+            <td>{esc(str(j.get('failure_reason') or '—'))}</td>
         </tr>""")
 
     sorted_events = sorted(events, key=lambda x: x.get("event_time", 0))
@@ -85,10 +86,10 @@ def _build_html(jobs, events, fallbacks):
         event_rows.append(f"""
         <tr>
             <td>{_fmt_time(e.get('event_time'))}</td>
-            <td>{e.get('region', '—')}</td>
-            <td>{e.get('job_id', '—').split('/')[-1]}</td>
-            <td>{e.get('old_status', '—')}</td>
-            <td>{e.get('new_status', '—')}</td>
+            <td>{esc(str(e.get('region', '—')))}</td>
+            <td>{esc(e.get('job_id', '—').split('/')[-1])}</td>
+            <td>{esc(str(e.get('old_status', '—')))}</td>
+            <td>{esc(str(e.get('new_status', '—')))}</td>
             <td>{transition_time}</td>
         </tr>""")
 
@@ -96,10 +97,10 @@ def _build_html(jobs, events, fallbacks):
     for f in sorted(fallbacks, key=lambda x: x.get("triggered_at", 0)):
         fallback_rows.append(f"""
         <tr>
-            <td>{f.get('job_id', '—').split('/')[-1]}</td>
+            <td>{esc(f.get('job_id', '—').split('/')[-1])}</td>
             <td>{f.get('records_recovered', 0)}</td>
             <td>{_fmt_duration(f.get('ondemand_duration_seconds'))}</td>
-            <td>{f.get('reason', '—')}</td>
+            <td>{esc(str(f.get('reason', '—')))}</td>
         </tr>""")
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -175,6 +176,7 @@ def handler(event, context):
         Key=DASHBOARD_KEY,
         Body=html,
         ContentType="text/html",
+        ServerSideEncryption="AES256",
     )
 
     print(f"Dashboard written to s3://{DASHBOARD_BUCKET}/{DASHBOARD_KEY}")

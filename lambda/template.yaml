@@ -40,7 +40,7 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.9
+    Runtime: python3.12
     Timeout: 900
     MemorySize: 256
     Layers:
@@ -57,6 +57,8 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
       AttributeDefinitions:
         - AttributeName: job_id
           AttributeType: S
@@ -68,6 +70,8 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
       AttributeDefinitions:
         - AttributeName: job_id
           AttributeType: S
@@ -83,6 +87,8 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
       AttributeDefinitions:
         - AttributeName: job_id
           AttributeType: S
@@ -102,7 +108,7 @@ Resources:
       Description: DynamoDB storage layer shared across all functions
       ContentUri: shared/
       CompatibleRuntimes:
-        - python3.9
+        - python3.12
 
   # ---- SQS queues (one per region in Regions param is handled by
   #      setup_events.py; this template creates the Lambda trigger
@@ -112,6 +118,7 @@ Resources:
     Properties:
       MessageRetentionPeriod: 1209600
       VisibilityTimeout: 960
+      SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt EventDLQ.Arn
         maxReceiveCount: 3
@@ -120,6 +127,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
 
   EventQueuePolicy:
     Type: AWS::SQS::QueuePolicy
@@ -138,6 +146,8 @@ Resources:
             Condition:
               ArnEquals:
                 "aws:SourceArn": !GetAtt BedrockBatchRule.Arn
+              StringEquals:
+                "aws:SourceAccount": !Ref "AWS::AccountId"
 
   # ---- EventBridge rule ----
   BedrockBatchRule:
@@ -189,7 +199,7 @@ Resources:
                 - events:DeleteRule
                 - events:RemoveTargets
                 - events:DescribeRule
-              Resource: "*"
+              Resource: !Sub "arn:aws:events:*:${AWS::AccountId}:rule/bedrock-batch-xregion-*"
         - Statement:
             - Effect: Allow
               Action: iam:PassRole
@@ -227,14 +237,17 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:CreateModelInvocationJob
-              Resource: "*"
+              Resource: !Sub "arn:aws:bedrock:*:${AWS::AccountId}:model-invocation-job/*"
         - Statement:
             - Effect: Allow
               Action:
                 - s3:CreateBucket
                 - s3:HeadBucket
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*"
+            - Effect: Allow
+              Action:
                 - s3:PutObject
-              Resource: "*"
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*/*"
         - Statement:
             - Effect: Allow
               Action:
@@ -270,16 +283,22 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
+              Resource: !Sub "arn:aws:bedrock:*::foundation-model/*"
+            - Effect: Allow
+              Action:
                 - bedrock:GetModelInvocationJob
                 - bedrock:StopModelInvocationJob
-              Resource: "*"
+              Resource: !Sub "arn:aws:bedrock:*:${AWS::AccountId}:model-invocation-job/*"
         - Statement:
             - Effect: Allow
               Action:
                 - s3:GetObject
                 - s3:PutObject
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*/*"
+            - Effect: Allow
+              Action:
                 - s3:ListBucket
-              Resource: "*"
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*"
 
   FallbackSweepFunction:
     Type: AWS::Serverless::Function
@@ -302,16 +321,22 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
-                - bedrock:GetModelInvocationJob
                 - bedrock:InvokeModel
-              Resource: "*"
+              Resource: !Sub "arn:aws:bedrock:*::foundation-model/*"
+            - Effect: Allow
+              Action:
+                - bedrock:GetModelInvocationJob
+              Resource: !Sub "arn:aws:bedrock:*:${AWS::AccountId}:model-invocation-job/*"
         - Statement:
             - Effect: Allow
               Action:
                 - s3:GetObject
                 - s3:PutObject
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*/*"
+            - Effect: Allow
+              Action:
                 - s3:ListBucket
-              Resource: "*"
+              Resource: !Sub "arn:aws:s3:::${BucketPrefix}-*"
 
   BuildDashboardFunction:
     Type: AWS::Serverless::Function

@@ -78,7 +78,8 @@ def _recover_job(region: str, model_id: str, input_s3_uri: str, output_s3_uri: s
                 print(f"  recovery error for {record['recordId']}: {e}")
 
     if recovered_outputs:
-        recovery_key = out_prefix.rstrip("/") + "/recovery.jsonl.out"
+        import uuid as _uuid
+        recovery_key = out_prefix.rstrip("/") + f"/recovery-{_uuid.uuid4().hex[:8]}.jsonl.out"
         recovery_body = "\n".join(json.dumps(r) for r in recovered_outputs)
         s3.put_object(Bucket=out_bucket, Key=recovery_key, Body=recovery_body.encode())
         print(f"  Wrote {len(recovered_outputs)} recovered results to s3://{out_bucket}/{recovery_key}")
